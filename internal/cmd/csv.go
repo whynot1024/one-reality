@@ -79,22 +79,39 @@ func (r *RootCmd) executeCSV(csvFile string) {
 		return
 	}
 
-	// 显示广告
-	ui.PrintAdvertisement()
 }
 
 // extractDomainsFromCSV 从CSV记录中提取域名
 func extractDomainsFromCSV(records [][]string) []string {
+	if len(records) < 2 {
+		return nil
+	}
+
+	// 查找 CERT_DOMAIN 列的索引
+	domainIdx := -1
+	header := records[0]
+	for idx, col := range header {
+		if strings.ToUpper(strings.TrimSpace(col)) == "CERT_DOMAIN" {
+			domainIdx = idx
+			break
+		}
+	}
+
+	// 如果没找到，默认使用索引 2
+	if domainIdx == -1 {
+		domainIdx = 2
+	}
+
 	var domains []string
 	domainSet := make(map[string]bool) // 用于去重
 
-	// 跳过标题行，从第二行开始处理
+	// 从第二行开始处理
 	for i := 1; i < len(records); i++ {
-		if len(records[i]) < 3 {
+		if len(records[i]) <= domainIdx {
 			continue
 		}
 
-		certDomain := strings.TrimSpace(records[i][2]) // CERT_DOMAIN列
+		certDomain := strings.TrimSpace(records[i][domainIdx])
 		if certDomain == "" {
 			continue
 		}
