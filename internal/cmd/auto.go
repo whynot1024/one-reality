@@ -1,11 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -17,54 +16,18 @@ import (
 	"RealityChecker/internal/ui"
 )
 
-type IPInfo struct {
-	Status  string `json:"status"`
-	Country string `json:"country"`
-	ASN     string `json:"asn"`
-	Org     string `json:"org"`
-	Query   string `json:"query"`
-}
+// executeAuto 处理 CIDR/IP 列表，内存中调用内置 TLS 扫描器并根据 REALITY 策略输出彩色表格结果
+func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.RealityFilterConfig) {
+	if len(cidrs) == 0 {
+		ui.PrintError("错误：未提供有效的 CIDR 扫描网段")
+		return
+	}
 
-type BGPViewPrefixes struct {
-	Data struct {
-		IPv4Prefixes []struct {
-			Prefix string `json:"prefix"`
-			Name   string `json:"name"`
-		} `json:"ipv4_prefixes"`
-	} `json:"data"`
-}
-
-// executeAuto 自动查询目标 IP 的 ASN 与 CIDR，内存中调用内置 TLS 扫描器，并根据 REALITY 最佳实践策略输出筛选后的彩色表格结果
-func (r *RootCmd) executeAuto(targetInput string, maxTargets int, filter types.RealityFilterConfig) {
 	ui.PrintTimestampedMessage("开启内嵌自动化扫描与检测模式 (Native Engine)...")
-	ui.PrintTimestampedMessage("目标: %s", targetInput)
 	ui.PrintTimestampedMessage("应用 REALITY 选型策略: [非CDN=%v, 最大握手=%dms, 排除热门=%v, 最小证书天数=%d天, 最低星级=%d星]",
 		filter.RequireNoCDN, filter.MaxHandshakeMS, filter.RequireNoHot, filter.MinCertDays, filter.MinStars)
 
-	var targetIP string
-	var initialCIDRs []string
-
-	if strings.Contains(targetInput, "/") {
-		targetIP = strings.Split(targetInput, "/")[0]
-		initialCIDRs = append(initialCIDRs, targetInput)
-	} else {
-		targetIP = targetInput
-	}
-
-	ipObj := net.ParseIP(targetIP)
-	if ipObj == nil {
-		ui.PrintError(fmt.Sprintf("错误：无效的 IP 地址 '%s'", targetInput))
-		return
-	}
-
-	// 1. 自动解析 ASN 与 CIDR
-	cidrs := r.resolveCIDRsForIP(targetIP, initialCIDRs)
-	if len(cidrs) == 0 {
-		ui.PrintError("无法获取有效的 CIDR 扫描段")
-		return
-	}
-
-	ui.PrintTimestampedMessage("共解析到 %d 个 CIDR 扫描网段。按优先级排序如下:", len(cidrs))
+	ui.PrintTimestampedMessage("待扫描网段总数: %d 个。排序如下:", len(cidrs))
 	for i, c := range cidrs {
 		if i < 5 {
 			fmt.Printf("  [%d] %s\n", i+1, c)
@@ -74,11 +37,11 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int, filter types.R
 		fmt.Printf("  ...以及其余 %d 个网段\n", len(cidrs)-5)
 	}
 
-	// 2. 初始化内嵌 Go 扫描器
+	// 1. 初始化内嵌 Go 扫描器
 	scannerEngine := scanner.NewScanner()
 	defer scannerEngine.Close()
 
-	// 3. 构造流水线 Channel
+	// 2. 构造流水线 Channel
 	scanResultChan := make(chan *scanner.ScanResult, 100)
 	domainSet := make(map[string]bool)
 	var mu sync.Mutex
@@ -153,7 +116,7 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int, filter types.R
 		}()
 	}
 
-	// 4. 顺序调度 CIDR 扫描（内存直接推入通道）
+	// 3. 顺序调度 CIDR 扫描（内存直接推入通道）
 	for idx, cidr := range cidrs {
 		select {
 		case <-ctx.Done():
@@ -302,69 +265,6 @@ func calculateStars(result *types.DetectionResult) int {
 	return stars
 }
 
-// resolveCIDRsForIP 查询 IP 的 ASN 与 CIDR 列表
-func (r *RootCmd) resolveCIDRsForIP(targetIP string, initial []string) []string {
-	var results []string
-	results = append(results, initial...)
-
-	// 添加近邻子网
-	ip := net.ParseIP(targetIP)
-	if ip != nil {
-		v4 := ip.To4()
-		if v4 != nil {
-			// /24 网段
-			c24 := fmt.Sprintf("%d.%d.%d.0/24", v4[0], v4[1], v4[2])
-			if !contains(results, c24) {
-				results = append(results, c24)
-			}
-			// /23 网段
-			c23 := fmt.Sprintf("%d.%d.%d.0/23", v4[0], v4[1], v4[2]&0xFE)
-			if !contains(results, c23) {
-				results = append(results, c23)
-			}
-		}
-	}
-
-	// HTTP 查询 ASN
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://ip-api.com/json/%s?fields=status,country,asn,org,query", targetIP))
-	if err == nil {
-		defer resp.Body.Close()
-		var info IPInfo
-		if err := json.NewDecoder(resp.Body).Decode(&info); err == nil && info.Status == "success" {
-			ui.PrintTimestampedMessage("目标 IP 信息: 国家=%s, ASN=%s, 组织=%s", info.Country, info.ASN, info.Org)
-
-			// 提取 ASN 数字
-			asnParts := strings.Fields(info.ASN)
-			var asnNum string
-			for _, part := range asnParts {
-				if strings.HasPrefix(strings.ToUpper(part), "AS") {
-					asnNum = strings.TrimPrefix(strings.ToUpper(part), "AS")
-					break
-				}
-			}
-
-			if asnNum != "" {
-				// 查询 BGPView API
-				bgpResp, err := client.Get(fmt.Sprintf("https://api.bgpview.io/asn/%s/prefixes", asnNum))
-				if err == nil {
-					defer bgpResp.Body.Close()
-					var prefixes BGPViewPrefixes
-					if err := json.NewDecoder(bgpResp.Body).Decode(&prefixes); err == nil {
-						for _, p := range prefixes.Data.IPv4Prefixes {
-							if !contains(results, p.Prefix) {
-								results = append(results, p.Prefix)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return results
-}
-
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -374,13 +274,77 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
+// resolveInputToCIDRs 原生构建 CIDR 扫描队列（无需依赖易失效的第三方 HTTP API）
+func resolveInputToCIDRs(targetInput string, inFile string) []string {
+	var cidrs []string
+
+	// 从文件批量读取 CIDRs
+	if inFile != "" {
+		f, err := os.Open(inFile)
+		if err == nil {
+			defer f.Close()
+			scanner := bufio.NewScanner(f)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
+				}
+				cidrs = appendCIDR(cidrs, line)
+			}
+		}
+	}
+
+	// 处理单个命令行目标输入 (支持 CIDR 或 IP)
+	if targetInput != "" {
+		cidrs = appendCIDR(cidrs, targetInput)
+	}
+
+	return cidrs
+}
+
+func appendCIDR(list []string, input string) []string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return list
+	}
+
+	// 如果输入本身是 CIDR (如 5.45.102.0/24)
+	if strings.Contains(input, "/") {
+		if !contains(list, input) {
+			list = append(list, input)
+		}
+		return list
+	}
+
+	// 如果输入是单个 IP (如 5.45.102.196)，原生自动生成该 IP 的近邻 /24 和 /23 网段
+	ip := net.ParseIP(input)
+	if ip != nil {
+		v4 := ip.To4()
+		if v4 != nil {
+			c24 := fmt.Sprintf("%d.%d.%d.0/24", v4[0], v4[1], v4[2])
+			if !contains(list, c24) {
+				list = append(list, c24)
+			}
+			c23 := fmt.Sprintf("%d.%d.%d.0/23", v4[0], v4[1], v4[2]&0xFE)
+			if !contains(list, c23) {
+				list = append(list, c23)
+			}
+		}
+	}
+
+	return list
+}
+
 // parseAndExecuteAuto 解析命令行参数并应用 YAML 策略与 CLI 参数覆盖
 func (r *RootCmd) parseAndExecuteAuto(args []string) {
 	if len(args) == 0 {
 		ui.PrintErrorWithDetails(
-			"错误：缺少目标 IP 或 CIDR 参数",
-			"用法: reality-checker auto <target_ip_or_cidr> [选项]",
+			"错误：缺少目标 IP / CIDR 参数或 --in 文件参数",
+			"用法:",
+			"  reality-checker auto <ip_or_cidr> [选项]",
+			"  reality-checker auto --in <cidr_file> [选项]",
 			"选项:",
+			"  --in FILE            从文件中批量读取 CIDR/IP 列表 (每行一个)",
 			"  --limit N            指定获取合适目标的数量上限 (默认 5)",
 			"  --no-cdn             强制筛选无 CDN 节点 (默认开启)",
 			"  --allow-cdn          允许 CDN 节点",
@@ -389,18 +353,32 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 			"  --allow-hot          允许热门大站",
 			"  --min-cert-days DAYS 证书最低剩余天数 (默认 7 天)",
 			"  --min-stars STARS    最低推荐星级 1-5 (默认 3)",
-			"示例: reality-checker auto 5.45.102.196 --limit 2 --no-cdn --max-handshake 500 --min-stars 3",
+			"示例:",
+			"  reality-checker auto 5.45.102.0/24 --limit 2",
+			"  reality-checker auto 5.45.102.196 --limit 5 --max-handshake 500",
+			"  reality-checker auto --in cidrs.txt --limit 5",
 		)
 		os.Exit(1)
 	}
 
-	target := args[0]
+	var targetInput string
+	var inFile string
 	maxTargets := 5
 	filter := r.batchManager.GetConfig().RealityFilter
 
-	for i := 1; i < len(args); i++ {
+	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if !strings.HasPrefix(arg, "-") && targetInput == "" {
+			targetInput = arg
+			continue
+		}
+
 		switch arg {
+		case "--in":
+			if i+1 < len(args) {
+				inFile = args[i+1]
+				i++
+			}
 		case "--limit", "-n":
 			if i+1 < len(args) {
 				if n, err := strconv.Atoi(args[i+1]); err == nil {
@@ -440,5 +418,6 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 		}
 	}
 
-	r.executeAuto(target, maxTargets, filter)
+	cidrs := resolveInputToCIDRs(targetInput, inFile)
+	r.executeAuto(cidrs, maxTargets, filter)
 }
