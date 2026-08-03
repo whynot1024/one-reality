@@ -116,11 +116,11 @@ func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.Reali
 		}()
 	}
 
-	// 3. 顺序调度 CIDR 扫描（内存直接推入通道）
+CIDRLoop:
 	for idx, cidr := range cidrs {
 		select {
 		case <-ctx.Done():
-			break
+			break CIDRLoop
 		default:
 		}
 
@@ -128,7 +128,7 @@ func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.Reali
 		sc := len(suitableResults)
 		mu.Unlock()
 		if maxTargets > 0 && sc >= maxTargets {
-			break
+			break CIDRLoop
 		}
 
 		ui.PrintTimestampedMessage("[%d/%d] 正在内嵌并发扫描网段: %s ...", idx+1, len(cidrs), cidr)
