@@ -10,9 +10,19 @@ import (
 )
 
 func main() {
-	// 首先显示横幅
-	ui.PrintBanner()
-	
+	// 判断是否需要打印横幅（pipe/auto 或有 --quiet 标记时跳过横幅）
+	shouldPrintBanner := true
+	if len(os.Args) > 1 {
+		subcmd := os.Args[1]
+		if subcmd == "pipe" || subcmd == "auto" || subcmd == "--quiet" || subcmd == "-q" {
+			shouldPrintBanner = false
+		}
+	}
+
+	if shouldPrintBanner {
+		ui.PrintBanner()
+	}
+
 	// 检查并下载必要的数据文件
 	downloader := data.NewDownloader()
 	if err := downloader.EnsureDataFiles(); err != nil {
@@ -30,5 +40,6 @@ func main() {
 	// 执行命令
 	rootCmd.Execute()
 }
+
 
 

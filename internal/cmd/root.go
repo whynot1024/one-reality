@@ -71,6 +71,10 @@ func (r *RootCmd) Execute() {
 	}
 
 	switch os.Args[1] {
+	case "pipe":
+		r.executePipe()
+	case "auto":
+		r.parseAndExecuteAuto(os.Args[2:])
 	case "check":
 		if len(os.Args) < 3 {
 			ui.PrintErrorWithDetails(
@@ -108,7 +112,7 @@ func (r *RootCmd) Execute() {
 	default:
 		ui.PrintErrorWithDetails(
 			fmt.Sprintf("错误：未知命令 '%s'", os.Args[1]),
-			"可用命令: check, batch, csv, version",
+			"可用命令: auto, pipe, check, batch, csv, version",
 		)
 		os.Exit(1)
 	}
