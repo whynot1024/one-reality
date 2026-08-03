@@ -3,7 +3,7 @@
 # 日志系统配置
 log:
   # 日志级别: debug (每请求一个 IP 即输出详细日志), info, warn, error
-  level: debug
+  level: info
   file: ""
 
 # REALITY 目标选型过滤策略 (遵从 Xray 官方最佳实践)
