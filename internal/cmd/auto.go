@@ -98,6 +98,14 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 						return
 					}
 
+					// 检查是否已经达到上限，若达到立刻放弃
+					mu.Lock()
+					if maxTargets > 0 && len(suitableResults) >= maxTargets {
+						mu.Unlock()
+						return
+					}
+					mu.Unlock()
+
 					select {
 					case <-ctx.Done():
 						return
@@ -109,6 +117,11 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 
 					mu.Lock()
 					defer mu.Unlock()
+
+					// 再次检查二次确认
+					if maxTargets > 0 && len(suitableResults) >= maxTargets {
+						return
+					}
 
 					if err == nil && res != nil && res.Suitable && res.Error == nil && res.TLS != nil && res.TLS.SupportsTLS13 {
 						suitableResults = append(suitableResults, res)
@@ -128,7 +141,7 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 							timestamp, suitableCount, d, scanRes.IP, handshakeMs, statusCode)
 
 						if maxTargets > 0 && suitableCount >= maxTargets {
-							ui.PrintTimestampedMessage("已达到设定的目标数量限制 (%d 个)，正在停止扫描...", maxTargets)
+							ui.PrintTimestampedMessage("已达到设定的目标数量限制 (%d 个)，即刻刹车并停止扫描...", maxTargets)
 							cancel()
 						}
 					}
@@ -168,6 +181,11 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 				}
 
 				mu.Lock()
+				if maxTargets > 0 && len(suitableResults) >= maxTargets {
+					mu.Unlock()
+					continue
+				}
+
 				if !domainSet[res.CertDomain] {
 					domainSet[res.CertDomain] = true
 					workerWg.Add(1)
@@ -189,6 +207,11 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 
 	workerWg.Wait()
 	close(scanResultChan)
+
+	// 严密裁剪结果数量，保证精确等于 maxTargets
+	if maxTargets > 0 && len(suitableResults) > maxTargets {
+		suitableResults = suitableResults[:maxTargets]
+	}
 
 	ui.PrintTimestampedMessage("扫描与检测完成！共找到 %d 个合格 REALITY 目标域名。", len(suitableResults))
 
