@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"RealityChecker/internal/types"
 	"RealityChecker/internal/ui"
 )
 
-// executePipe 从标准输入(Stdin)流式读取 CSV 数据或域名，进行实时并行检测
+// executePipe 从标准输入(Stdin)流式读取 CSV 数据或域名，进行实时并行检测并输出彩色表格
 func (r *RootCmd) executePipe() {
 	ui.PrintTimestampedMessage("开启管道流式检测模式 (Pipe Mode)...")
 
@@ -22,26 +23,40 @@ func (r *RootCmd) executePipe() {
 	domainSet := make(map[string]bool)
 	var mu sync.Mutex
 
+	var suitableResults []*types.DetectionResult
 	concurrency := 10
 	var wg sync.WaitGroup
-	suitableCount := 0
 
 	// 启动固定数量的 Worker 协程
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			for domain := range domainChan {
-				res, err := r.engine.CheckDomain(r.ctx, domain)
+				func() {
+					defer wg.Done()
 
-				mu.Lock()
-				timestamp := time.Now().Format("15:04:05")
-				if err == nil && res != nil && res.Suitable {
-					suitableCount++
-					fmt.Printf("[%s] ★ [可用 REALITY 目标] %-35s (握手: %dms, 页面: %d)\n",
-						timestamp, domain, res.TLS.HandshakeTime.Milliseconds(), res.Network.StatusCode)
-				}
-				mu.Unlock()
+					res, err := r.engine.CheckDomain(r.ctx, domain)
 
-				wg.Done()
+					mu.Lock()
+					defer mu.Unlock()
+
+					if err == nil && res != nil && res.Suitable && res.Error == nil && res.TLS != nil && res.TLS.SupportsTLS13 {
+						suitableResults = append(suitableResults, res)
+						suitableCount := len(suitableResults)
+
+						var handshakeMs int64 = 0
+						if res.TLS != nil {
+							handshakeMs = res.TLS.HandshakeTime.Milliseconds()
+						}
+						var statusCode int = 0
+						if res.Network != nil {
+							statusCode = res.Network.StatusCode
+						}
+
+						timestamp := time.Now().Format("15:04:05")
+						fmt.Printf("[%s] ★ [可用 REALITY 目标 #%d] %-35s (握手: %dms, 页面: %d)\n",
+							timestamp, suitableCount, domain, handshakeMs, statusCode)
+					}
+				}()
 			}
 		}()
 	}
@@ -113,5 +128,12 @@ func (r *RootCmd) executePipe() {
 		ui.PrintError(fmt.Sprintf("读取管道输入错误: %v", err))
 	}
 
-	ui.PrintTimestampedMessage("管道流式检测结束。共找到 %d 个适合的 REALITY 目标域名。", suitableCount)
+	ui.PrintTimestampedMessage("管道流式检测结束。共找到 %d 个适合的 REALITY 目标域名。", len(suitableResults))
+
+	// 渲染经典带颜色 ASCII 表格
+	if len(suitableResults) > 0 {
+		r.batchManager.SortByRecommendationStars(suitableResults)
+		fmt.Println("\n适合的域名:")
+		fmt.Println(r.batchManager.FormatSuitableTable(suitableResults))
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"RealityChecker/internal/scanner"
+	"RealityChecker/internal/types"
 	"RealityChecker/internal/ui"
 )
 
@@ -33,7 +34,7 @@ type BGPViewPrefixes struct {
 	} `json:"data"`
 }
 
-// executeAuto 自动查询目标 IP 的 ASN 与 CIDR，内存中调用内置 TLS 扫描器并渐进式输出可用结果
+// executeAuto 自动查询目标 IP 的 ASN 与 CIDR，内存中调用内置 TLS 扫描器并输出彩色表格结果
 func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 	ui.PrintTimestampedMessage("开启内嵌自动化扫描与检测模式 (Native Engine)...")
 	ui.PrintTimestampedMessage("目标: %s", targetInput)
@@ -80,7 +81,7 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 	domainSet := make(map[string]bool)
 	var mu sync.Mutex
 
-	suitableCount := 0
+	var suitableResults []*types.DetectionResult
 	concurrency := 10
 	var workerWg sync.WaitGroup
 
@@ -91,31 +92,47 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			for scanRes := range scanResultChan {
-				select {
-				case <-ctx.Done():
-					workerWg.Done()
-					continue
-				default:
-				}
-
-				d := scanRes.CertDomain
-				res, err := r.engine.CheckDomain(ctx, d)
-
-				mu.Lock()
-				timestamp := time.Now().Format("15:04:05")
-				if err == nil && res != nil && res.Suitable {
-					suitableCount++
-					fmt.Printf("[%s] ★ [推荐 REALITY 目标 #%d] %-35s (IP: %s, 握手: %dms, 页面: %d)\n",
-						timestamp, suitableCount, d, scanRes.IP, res.TLS.HandshakeTime.Milliseconds(), res.Network.StatusCode)
-
-					if maxTargets > 0 && suitableCount >= maxTargets {
-						ui.PrintTimestampedMessage("已达到设定的目标数量限制 (%d 个)，正在优雅结束...", maxTargets)
-						cancel()
+				func() {
+					defer workerWg.Done()
+					if scanRes == nil {
+						return
 					}
-				}
-				mu.Unlock()
 
-				workerWg.Done()
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+
+					d := scanRes.CertDomain
+					res, err := r.engine.CheckDomain(ctx, d)
+
+					mu.Lock()
+					defer mu.Unlock()
+
+					if err == nil && res != nil && res.Suitable && res.Error == nil && res.TLS != nil && res.TLS.SupportsTLS13 {
+						suitableResults = append(suitableResults, res)
+						suitableCount := len(suitableResults)
+
+						var handshakeMs int64 = 0
+						if res.TLS != nil {
+							handshakeMs = res.TLS.HandshakeTime.Milliseconds()
+						}
+						var statusCode int = 0
+						if res.Network != nil {
+							statusCode = res.Network.StatusCode
+						}
+
+						timestamp := time.Now().Format("15:04:05")
+						fmt.Printf("[%s] ★ [发现候选 REALITY 目标 #%d] %-35s (IP: %s, 握手: %dms, 页面: %d)\n",
+							timestamp, suitableCount, d, scanRes.IP, handshakeMs, statusCode)
+
+						if maxTargets > 0 && suitableCount >= maxTargets {
+							ui.PrintTimestampedMessage("已达到设定的目标数量限制 (%d 个)，正在停止扫描...", maxTargets)
+							cancel()
+						}
+					}
+				}()
 			}
 		}()
 	}
@@ -128,13 +145,11 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 		default:
 		}
 
-		if maxTargets > 0 {
-			mu.Lock()
-			sc := suitableCount
-			mu.Unlock()
-			if sc >= maxTargets {
-				break
-			}
+		mu.Lock()
+		sc := len(suitableResults)
+		mu.Unlock()
+		if maxTargets > 0 && sc >= maxTargets {
+			break
 		}
 
 		ui.PrintTimestampedMessage("[%d/%d] 正在内嵌并发扫描网段: %s ...", idx+1, len(cidrs), cidr)
@@ -175,7 +190,14 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 	workerWg.Wait()
 	close(scanResultChan)
 
-	ui.PrintTimestampedMessage("自动化流程完成！共找到 %d 个合格 REALITY 目标域名。", suitableCount)
+	ui.PrintTimestampedMessage("扫描与检测完成！共找到 %d 个合格 REALITY 目标域名。", len(suitableResults))
+
+	// 渲染经典带颜色 ASCII 表格
+	if len(suitableResults) > 0 {
+		r.batchManager.SortByRecommendationStars(suitableResults)
+		fmt.Println("\n适合的域名:")
+		fmt.Println(r.batchManager.FormatSuitableTable(suitableResults))
+	}
 }
 
 // resolveCIDRsForIP 查询 IP 的 ASN 与 CIDR 列表

@@ -42,6 +42,19 @@ func NewManagerWithEngine(engine *core.Engine, config *types.Config) *Manager {
 	}
 }
 
+// FormatSuitableTable 格式化适合域名的表格
+func (bm *Manager) FormatSuitableTable(results []*types.DetectionResult) string {
+	if bm.tableFormatter == nil {
+		bm.tableFormatter = report.NewTableFormatter(bm.config)
+	}
+	return bm.tableFormatter.FormatSuitableTable(results)
+}
+
+// SortByRecommendationStars 按推荐星级排序
+func (bm *Manager) SortByRecommendationStars(results []*types.DetectionResult) {
+	bm.sortByRecommendationStars(results)
+}
+
 // Start 启动批量管理器
 func (bm *Manager) Start() error {
 	bm.mu.Lock()
