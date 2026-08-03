@@ -126,6 +126,19 @@ func mergeConfig(defaultConfig *types.Config, fileConfig *types.Config) {
 	if fileConfig.Batch.Timeout > 0 {
 		defaultConfig.Batch.Timeout = fileConfig.Batch.Timeout
 	}
+
+	// REALITY 选型策略配置
+	defaultConfig.RealityFilter.RequireNoCDN = fileConfig.RealityFilter.RequireNoCDN
+	defaultConfig.RealityFilter.RequireNoHot = fileConfig.RealityFilter.RequireNoHot
+	if fileConfig.RealityFilter.MaxHandshakeMS > 0 {
+		defaultConfig.RealityFilter.MaxHandshakeMS = fileConfig.RealityFilter.MaxHandshakeMS
+	}
+	if fileConfig.RealityFilter.MinCertDays > 0 {
+		defaultConfig.RealityFilter.MinCertDays = fileConfig.RealityFilter.MinCertDays
+	}
+	if fileConfig.RealityFilter.MinStars > 0 {
+		defaultConfig.RealityFilter.MinStars = fileConfig.RealityFilter.MinStars
+	}
 }
 
 // getDefaultConfig 获取默认配置
@@ -161,6 +174,13 @@ func getDefaultConfig() *types.Config {
 			ProgressBar:  true,
 			ReportFormat: "text",
 			Timeout:      30 * time.Second,
+		},
+		RealityFilter: types.RealityFilterConfig{
+			RequireNoCDN:   true,
+			MaxHandshakeMS: 800,
+			RequireNoHot:   true,
+			MinCertDays:    7,
+			MinStars:       3,
 		},
 	}
 }

@@ -34,10 +34,12 @@ type BGPViewPrefixes struct {
 	} `json:"data"`
 }
 
-// executeAuto 自动查询目标 IP 的 ASN 与 CIDR，内存中调用内置 TLS 扫描器并输出彩色表格结果
-func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
+// executeAuto 自动查询目标 IP 的 ASN 与 CIDR，内存中调用内置 TLS 扫描器，并根据 REALITY 最佳实践策略输出筛选后的彩色表格结果
+func (r *RootCmd) executeAuto(targetInput string, maxTargets int, filter types.RealityFilterConfig) {
 	ui.PrintTimestampedMessage("开启内嵌自动化扫描与检测模式 (Native Engine)...")
 	ui.PrintTimestampedMessage("目标: %s", targetInput)
+	ui.PrintTimestampedMessage("应用 REALITY 选型策略: [非CDN=%v, 最大握手=%dms, 排除热门=%v, 最小证书天数=%d天, 最低星级=%d星]",
+		filter.RequireNoCDN, filter.MaxHandshakeMS, filter.RequireNoHot, filter.MinCertDays, filter.MinStars)
 
 	var targetIP string
 	var initialCIDRs []string
@@ -123,7 +125,8 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 						return
 					}
 
-					if err == nil && res != nil && res.Suitable && res.Error == nil && res.TLS != nil && res.TLS.SupportsTLS13 {
+					// 检验是否完全符合 Xray REALITY 选型策略
+					if isSatisfiedRealityPolicy(res, err, filter) {
 						suitableResults = append(suitableResults, res)
 						suitableCount := len(suitableResults)
 
@@ -137,7 +140,7 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 						}
 
 						timestamp := time.Now().Format("15:04:05")
-						fmt.Printf("[%s] ★ [发现候选 REALITY 目标 #%d] %-35s (IP: %s, 握手: %dms, 页面: %d)\n",
+						fmt.Printf("[%s] ★ [发现优质 REALITY 目标 #%d] %-35s (IP: %s, 握手: %dms, 页面: %d)\n",
 							timestamp, suitableCount, d, scanRes.IP, handshakeMs, statusCode)
 
 						if maxTargets > 0 && suitableCount >= maxTargets {
@@ -213,7 +216,7 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 		suitableResults = suitableResults[:maxTargets]
 	}
 
-	ui.PrintTimestampedMessage("扫描与检测完成！共找到 %d 个合格 REALITY 目标域名。", len(suitableResults))
+	ui.PrintTimestampedMessage("扫描与检测完成！共找到 %d 个符合策略的优质 REALITY 目标域名。", len(suitableResults))
 
 	// 渲染经典带颜色 ASCII 表格
 	if len(suitableResults) > 0 {
@@ -221,6 +224,82 @@ func (r *RootCmd) executeAuto(targetInput string, maxTargets int) {
 		fmt.Println("\n适合的域名:")
 		fmt.Println(r.batchManager.FormatSuitableTable(suitableResults))
 	}
+}
+
+// isSatisfiedRealityPolicy 检查检测结果是否符合 REALITY 最佳实践筛选策略
+func isSatisfiedRealityPolicy(res *types.DetectionResult, err error, filter types.RealityFilterConfig) bool {
+	if err != nil || res == nil || !res.Suitable || res.Error != nil {
+		return false
+	}
+
+	// 1. 基础条件必须满足 TLS1.3 与 HTTP/2
+	if res.TLS == nil || !res.TLS.SupportsTLS13 || !res.TLS.SupportsHTTP2 {
+		return false
+	}
+
+	// 2. 强制非 CDN 过滤
+	if filter.RequireNoCDN {
+		if res.CDN != nil && res.CDN.IsCDN {
+			return false
+		}
+	}
+
+	// 3. 握手时间延迟上限过滤
+	if filter.MaxHandshakeMS > 0 && res.TLS != nil {
+		if res.TLS.HandshakeTime.Milliseconds() > filter.MaxHandshakeMS {
+			return false
+		}
+	}
+
+	// 4. 排除热门大站
+	if filter.RequireNoHot {
+		if res.CDN != nil && res.CDN.IsHotWebsite {
+			return false
+		}
+	}
+
+	// 5. 证书剩余有效天数下限过滤
+	if filter.MinCertDays > 0 {
+		if res.Certificate == nil || !res.Certificate.Valid || res.Certificate.DaysUntilExpiry < filter.MinCertDays {
+			return false
+		}
+	}
+
+	// 6. 最低推荐星级门槛过滤
+	if filter.MinStars > 0 {
+		stars := calculateStars(res)
+		if stars < filter.MinStars {
+			return false
+		}
+	}
+
+	return true
+}
+
+func calculateStars(result *types.DetectionResult) int {
+	stars := 0
+	if result.TLS != nil && result.TLS.SupportsTLS13 &&
+		result.TLS.SupportsX25519 && result.TLS.SupportsHTTP2 &&
+		result.SNI != nil && result.SNI.SNIMatch {
+		stars++
+	}
+	if result.TLS != nil && result.TLS.HandshakeTime > 0 {
+		if result.TLS.HandshakeTime.Milliseconds() <= 200 {
+			stars++
+		}
+	}
+	if result.CDN == nil || !result.CDN.IsCDN {
+		stars++
+	}
+	if result.CDN != nil && !result.CDN.IsHotWebsite {
+		stars++
+	}
+	if result.Certificate != nil && result.Certificate.Valid {
+		if result.Certificate.DaysUntilExpiry >= 60 {
+			stars++
+		}
+	}
+	return stars
 }
 
 // resolveCIDRsForIP 查询 IP 的 ASN 与 CIDR 列表
@@ -295,28 +374,71 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// parseAndExecuteAuto 解析命令行参数
+// parseAndExecuteAuto 解析命令行参数并应用 YAML 策略与 CLI 参数覆盖
 func (r *RootCmd) parseAndExecuteAuto(args []string) {
 	if len(args) == 0 {
 		ui.PrintErrorWithDetails(
 			"错误：缺少目标 IP 或 CIDR 参数",
-			"用法: reality-checker auto <target_ip_or_cidr> [--limit N]",
-			"示例: reality-checker auto 85.155.184.100 --limit 5",
+			"用法: reality-checker auto <target_ip_or_cidr> [选项]",
+			"选项:",
+			"  --limit N            指定获取合适目标的数量上限 (默认 5)",
+			"  --no-cdn             强制筛选无 CDN 节点 (默认开启)",
+			"  --allow-cdn          允许 CDN 节点",
+			"  --max-handshake MS   设置最大握手延迟 (毫秒, 默认 800)",
+			"  --no-hot             排除热门大站 (默认开启)",
+			"  --allow-hot          允许热门大站",
+			"  --min-cert-days DAYS 证书最低剩余天数 (默认 7 天)",
+			"  --min-stars STARS    最低推荐星级 1-5 (默认 3)",
+			"示例: reality-checker auto 5.45.102.196 --limit 2 --no-cdn --max-handshake 500 --min-stars 3",
 		)
 		os.Exit(1)
 	}
 
 	target := args[0]
-	maxTargets := 5 // 默认获取 5 个符合条件的域名后停止
+	maxTargets := 5
+	filter := r.batchManager.GetConfig().RealityFilter
 
 	for i := 1; i < len(args); i++ {
-		if (args[i] == "--limit" || args[i] == "-n") && i+1 < len(args) {
-			if n, err := strconv.Atoi(args[i+1]); err == nil {
-				maxTargets = n
+		arg := args[i]
+		switch arg {
+		case "--limit", "-n":
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil {
+					maxTargets = n
+				}
+				i++
 			}
-			i++
+		case "--no-cdn":
+			filter.RequireNoCDN = true
+		case "--allow-cdn":
+			filter.RequireNoCDN = false
+		case "--no-hot":
+			filter.RequireNoHot = true
+		case "--allow-hot":
+			filter.RequireNoHot = false
+		case "--max-handshake":
+			if i+1 < len(args) {
+				if ms, err := strconv.ParseInt(args[i+1], 10, 64); err == nil {
+					filter.MaxHandshakeMS = ms
+				}
+				i++
+			}
+		case "--min-cert-days":
+			if i+1 < len(args) {
+				if days, err := strconv.Atoi(args[i+1]); err == nil {
+					filter.MinCertDays = days
+				}
+				i++
+			}
+		case "--min-stars":
+			if i+1 < len(args) {
+				if s, err := strconv.Atoi(args[i+1]); err == nil {
+					filter.MinStars = s
+				}
+				i++
+			}
 		}
 	}
 
-	r.executeAuto(target, maxTargets)
+	r.executeAuto(target, maxTargets, filter)
 }

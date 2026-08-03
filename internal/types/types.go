@@ -331,14 +331,24 @@ type TLSConfig struct {
 	NextProtos   []string
 }
 
+// RealityFilterConfig REALITY 选型策略配置
+type RealityFilterConfig struct {
+	RequireNoCDN   bool  `yaml:"require_no_cdn"`
+	MaxHandshakeMS int64 `yaml:"max_handshake_ms"`
+	RequireNoHot   bool  `yaml:"require_no_hot"`
+	MinCertDays    int   `yaml:"min_cert_days"`
+	MinStars       int   `yaml:"min_stars"`
+}
+
 // Config 配置结构
 type Config struct {
-	Network     NetworkConfig     `yaml:"network"`
-	TLS         TLSConfig         `yaml:"tls"`
-	Concurrency ConcurrencyConfig `yaml:"concurrency"`
-	Output      OutputConfig      `yaml:"output"`
-	Cache       CacheConfig       `yaml:"cache"`
-	Batch       BatchConfig       `yaml:"batch"`
+	Network       NetworkConfig       `yaml:"network"`
+	TLS           TLSConfig           `yaml:"tls"`
+	Concurrency   ConcurrencyConfig   `yaml:"concurrency"`
+	Output        OutputConfig        `yaml:"output"`
+	Cache         CacheConfig         `yaml:"cache"`
+	Batch         BatchConfig         `yaml:"batch"`
+	RealityFilter RealityFilterConfig `yaml:"reality_filter"`
 }
 
 // NetworkConfig 网络配置

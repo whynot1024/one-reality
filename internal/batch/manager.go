@@ -42,6 +42,11 @@ func NewManagerWithEngine(engine *core.Engine, config *types.Config) *Manager {
 	}
 }
 
+// GetConfig 获取当前配置
+func (bm *Manager) GetConfig() *types.Config {
+	return bm.config
+}
+
 // FormatSuitableTable 格式化适合域名的表格
 func (bm *Manager) FormatSuitableTable(results []*types.DetectionResult) string {
 	if bm.tableFormatter == nil {
