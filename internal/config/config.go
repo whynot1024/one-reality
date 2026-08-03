@@ -139,6 +139,14 @@ func mergeConfig(defaultConfig *types.Config, fileConfig *types.Config) {
 	if fileConfig.RealityFilter.MinStars > 0 {
 		defaultConfig.RealityFilter.MinStars = fileConfig.RealityFilter.MinStars
 	}
+
+	// 日志配置
+	if fileConfig.Log.Level != "" {
+		defaultConfig.Log.Level = fileConfig.Log.Level
+	}
+	if fileConfig.Log.File != "" {
+		defaultConfig.Log.File = fileConfig.Log.File
+	}
 }
 
 // getDefaultConfig 获取默认配置
@@ -181,6 +189,10 @@ func getDefaultConfig() *types.Config {
 			RequireNoHot:   true,
 			MinCertDays:    7,
 			MinStars:       3,
+		},
+		Log: types.LogConfig{
+			Level: "info",
+			File:  "",
 		},
 	}
 }

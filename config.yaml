@@ -1,18 +1,24 @@
 # REALITY 目标网站检测与选型系统 - 配置文件
 
+# 日志系统配置
+log:
+  # 日志级别: debug (每请求一个 IP 即输出详细日志), info, warn, error
+  level: debug
+  file: ""
+
 # REALITY 目标选型过滤策略 (遵从 Xray 官方最佳实践)
 reality_filter:
   # 1. 强制非 CDN 过滤 (true: 剔除 Cloudflare/Akamai/Fastly 等 CDN 节点，防止 VPS 变成公网免费反代)
   require_no_cdn: true
 
   # 2. 握手时间延迟上限 (毫秒): 高于此延迟的节点抛弃 (默认 800ms)
-  max_handshake_ms: 800
+  max_handshake_ms: 400
 
   # 3. 热门大站过滤 (true: 依据 data/hot_websites.txt 匹配剔除 Google/Apple 等超级大站)
   require_no_hot: true
 
   # 4. 证书剩余有效天数下限: 默认 7 天 (剔除 7 天内到期废弃的死链，避开 30 天造成的 ACME 自动续期误杀)
-  min_cert_days: 7
+  min_cert_days: 10
 
   # 5. 最低推荐星级门槛: (1~5 星)
   min_stars: 3

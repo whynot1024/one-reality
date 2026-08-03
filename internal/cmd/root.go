@@ -11,6 +11,7 @@ import (
 	"RealityChecker/internal/batch"
 	"RealityChecker/internal/config"
 	"RealityChecker/internal/core"
+	"RealityChecker/internal/logger"
 	"RealityChecker/internal/ui"
 	"RealityChecker/internal/version"
 )
@@ -30,6 +31,9 @@ func NewRootCmd() (*RootCmd, error) {
 	if err != nil {
 		return nil, fmt.Errorf("加载配置失败: %v", err)
 	}
+
+	// 初始化日志系统
+	logger.Init(cfg.Log.Level, cfg.Log.File)
 
 	// 创建引擎
 	engine := core.NewEngine(cfg)

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"RealityChecker/internal/logger"
+
 	"github.com/oschwald/geoip2-golang"
 )
 
@@ -146,13 +148,22 @@ func (s *Scanner) ScanCIDRStream(ctx context.Context, cidrStr string, port int, 
 				default:
 				}
 
+				if logger.IsDebug() {
+					logger.Debug("正在尝试 TLS1.3/h2 握手 IP: %s:%d", host.IP.String(), port)
+				}
+
 				res := s.ScanTLS(ctx, host, port, timeout, enableIPv6)
 				if res != nil {
+					if logger.IsDebug() {
+						logger.Debug("IP: %s 握手成功! 提取证书CN: %s, ALPN: %s, 加密套件: %s", host.IP.String(), res.CertDomain, res.ALPN, res.Curve)
+					}
 					select {
 					case outChan <- res:
 					case <-ctx.Done():
 						return
 					}
+				} else if logger.IsDebug() {
+					logger.Debug("IP: %s 握手失败/未响应/非 TLS1.3+h2", host.IP.String())
 				}
 			}
 		}()

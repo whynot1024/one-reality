@@ -340,6 +340,12 @@ type RealityFilterConfig struct {
 	MinStars       int   `yaml:"min_stars"`
 }
 
+// LogConfig 日志配置
+type LogConfig struct {
+	Level string `yaml:"level"`
+	File  string `yaml:"file"`
+}
+
 // Config 配置结构
 type Config struct {
 	Network       NetworkConfig       `yaml:"network"`
@@ -349,6 +355,7 @@ type Config struct {
 	Cache         CacheConfig         `yaml:"cache"`
 	Batch         BatchConfig         `yaml:"batch"`
 	RealityFilter RealityFilterConfig `yaml:"reality_filter"`
+	Log           LogConfig           `yaml:"log"`
 }
 
 // NetworkConfig 网络配置

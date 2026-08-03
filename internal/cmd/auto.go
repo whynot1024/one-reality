@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"RealityChecker/internal/logger"
 	"RealityChecker/internal/scanner"
 	"RealityChecker/internal/types"
 	"RealityChecker/internal/ui"
@@ -413,6 +414,13 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 				if s, err := strconv.Atoi(args[i+1]); err == nil {
 					filter.MinStars = s
 				}
+				i++
+			}
+		case "--debug":
+			logger.Init("debug", "")
+		case "--log-level":
+			if i+1 < len(args) {
+				logger.Init(args[i+1], "")
 				i++
 			}
 		}
