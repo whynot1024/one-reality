@@ -109,6 +109,8 @@ func (r *RootCmd) Execute() {
 		r.executeCSV(os.Args[2])
 	case "version", "-v", "--version":
 		r.showVersion()
+	case "help", "-h", "--help":
+		ui.PrintUsage()
 	default:
 		ui.PrintErrorWithDetails(
 			fmt.Sprintf("错误：未知命令 '%s'", os.Args[1]),

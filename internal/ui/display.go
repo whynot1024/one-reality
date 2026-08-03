@@ -100,22 +100,7 @@ func getLatestVersion() string {
 
 // getVersionInfo 获取版本信息字符串
 func getVersionInfo() string {
-	currentVersion := version.GetVersion() // 使用动态版本号
-
-	latestVersion := getLatestVersion()
-
-	if latestVersion == "" {
-		// 无法获取最新版本，只显示当前版本
-		return currentVersion
-	}
-
-	if latestVersion == currentVersion {
-		// 版本相同，只显示当前版本
-		return currentVersion
-	}
-
-	// 版本不同，显示当前版本和最新版本
-	return fmt.Sprintf("%s (最新: %s)", currentVersion, latestVersion)
+	return version.GetVersion()
 }
 
 // getDisplayWidth 计算字符串的显示宽度（中文字符占2个位置）

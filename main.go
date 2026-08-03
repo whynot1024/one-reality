@@ -10,13 +10,24 @@ import (
 )
 
 func main() {
+	// 若无参数或显式请求 help (-h, --help, help)，立刻打印帮助信息并退出，避免触发耗时的数据校验
+	if len(os.Args) < 2 {
+		ui.PrintBanner()
+		ui.PrintUsage()
+		os.Exit(0)
+	}
+
+	subcmd := os.Args[1]
+	if subcmd == "-h" || subcmd == "--help" || subcmd == "help" {
+		ui.PrintBanner()
+		ui.PrintUsage()
+		os.Exit(0)
+	}
+
 	// 判断是否需要打印横幅（pipe/auto 或有 --quiet 标记时跳过横幅）
 	shouldPrintBanner := true
-	if len(os.Args) > 1 {
-		subcmd := os.Args[1]
-		if subcmd == "pipe" || subcmd == "auto" || subcmd == "--quiet" || subcmd == "-q" {
-			shouldPrintBanner = false
-		}
+	if subcmd == "pipe" || subcmd == "auto" || subcmd == "--quiet" || subcmd == "-q" {
+		shouldPrintBanner = false
 	}
 
 	if shouldPrintBanner {
