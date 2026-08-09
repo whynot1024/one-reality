@@ -23,6 +23,22 @@ Reality SNI目标域名的最佳实践
 * **批量检测** - 支持多域名并发检测，可与RealiTLScanner配合使用
 * **智能报告** - 生成详细的检测分析报告
 
+### 推荐工作流程
+
+1.确认vps ip 
+
+2.手动查找和第一步的ip同ASN同国家的ip段（比如在[ipinfo](https://ipinfo.io)),
+
+3.把找到的ip range填入一个文件(比如as7203.txt)，一行一条
+
+4.开始检测(在客户端运行，也就是本地电脑，这样测出来的握手时间才有参考性,保证直连[不会分流请关闭代理])
+
+```bash
+./reality-checker auto --in ./as7203.txt  --limit 10
+```
+
+5.手动测试符合条件的域名，观察是否像真实上线的网站(不是demo，不是初始部署欢迎页),最好有真实的功能和业务
+
 ## 📊 检测结果说明
 
 ### 检测结果示例
@@ -111,20 +127,6 @@ concurrency:
 ./reality-checker csv file.csv
 ```
 
-### 推荐工作流程
-
-1.确认vps ip 
-
-2.手动查找和第一步的ip同ASN同国家的ip段（比如在[ipinfo](https://ipinfo.io)),
-
-3.把找到的ip range填入一个文件(比如as7203.txt)，一行一条
-
-4.开始检测
-```bash
-./reality-checker auto --in ./as7203.txt  --limit 10
-```
-
-5.手动测试符合条件的域名，观察是否像真实上线的网站(不是demo，不是初始部署欢迎页),最好有真实的功能和业务
 
 ### 查看帮助
 
