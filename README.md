@@ -1,8 +1,15 @@
-# Reality协议目标网站检测工具
+# Reality Target 寻找和分析工具
 
-一个专业的Reality协议目标网站检测工具，用于评估网站是否适合作为Reality协议的目标域名。
+一键找到符合最佳实践的SNI
 
-[V2RaySSR综合网](https://v2rayssr.com)
+基于原项目，整合Xray官方RealiTLScanner的功能，简化了操作步骤，实现 `输入ip段，返回符合条件的域名`,大大减少了心智负担和操作难度
+
+Reality SNI目标域名的最佳实践
+
+- 不使用CDN
+- 非热门大厂
+- 和入口机ip同ASN
+- TLS握手延迟尽量低
 
 ## ✨ 功能特性
 
@@ -20,10 +27,32 @@
 
 ### 检测结果示例
 
-以下是一个批量检测的实际输出示例：
+原本设计为
 
-```bash
-./reality-checker csv file.csv
+```
+输入vps的ip -> 自动查询ASN以及对应国家的同ASN ip段 -> 并发扫描所有ip -> 返回符合条件的结果
+```
+
+但是自动查询ASN下的ip段目前没找到免费的数据库方案。
+所以折中的做法是
+
+### 过滤条件
+
+二进制同目录下 congfig.yaml
+
+```yaml
+reality_filter:
+    #是否要求无cdn，默认true(推荐)
+    require_no_cdn:true
+    #TLS握手延迟上限，根据具体情况调整，默认800ms
+    max_hadshake_ms: 800
+    #最少证书有效期（如果过低可能是无人维护的死站）
+    min_cert_days: 20
+
+#并发性能
+concurrency:
+    max_concurrent: 10
+    check_timeout: 3s
 ```
 
 **实际运行效果：**
@@ -32,14 +61,6 @@
 
 **只有满足Reality目标域名硬性条件的（TLS1.3、X25519、H2、SNI匹配、证书有效），才会在列表中显示**
 
-### CDN检测等级说明
-
-| 等级 | 含义 | 影响 |
-|------|------|------|
-| **高** | 明确使用CDN | 可以使用，但不推荐 |
-| **中** | 疑似使用CDN | 可以使用，但不推荐 |
-| **低** | 轻微CDN特征 | 可以使用，但不推荐 |
-| **-** | 未检测到CDN | 可以使用，强烈推荐 |
 
 ### 热门网站说明
 
@@ -64,41 +85,8 @@
 
 **方法1：直接下载（推荐）**
 
-从 [Releases](https://github.com/V2RaySSR/RealityChecker/releases) 页面下载对应架构的zip文件：
+从 [Releases](https://github.com/qualvey/RealityChecker/releases) 页面下载对应架构的zip文件：
 
-```bash
-# Linux x86_64
-wget https://github.com/V2RaySSR/RealityChecker/releases/latest/download/reality-checker-linux-amd64.zip
-
-# Linux ARM64
-wget https://github.com/V2RaySSR/RealityChecker/releases/latest/download/reality-checker-linux-arm64.zip
-```
-
-解压后直接使用：
-```bash
-# 解压
-unzip reality-checker-linux-amd64.zip
-
-# 添加执行权限
-chmod +x reality-checker
-
-# 开始检测
-./reality-checker check <域名>
-```
-
-**方法2：本地编译**
-
-```bash
-# 克隆项目
-git clone https://github.com/V2RaySSR/RealityChecker.git
-cd RealityChecker
-
-# 编译程序
-go build -o reality-checker
-
-# 开始检测
-./reality-checker check <域名>
-```
 
 ## 🔍 使用示例
 
@@ -125,22 +113,18 @@ go build -o reality-checker
 
 ### 推荐工作流程
 
-对于大量域名检测，建议配合使用 [RealiTLScanner](https://github.com/XTLS/RealiTLScanner) 工具（ [教程观看](https://www.youtube.com/watch?v=zE8CFQ6muUI) ）：
+1.确认vps ip 
 
-**1. 使用RealiTLScanner扫描VPS IP：**
+2.手动查找和第一步的ip同ASN同国家的ip段（比如在[ipinfo](https://ipinfo.io)),
+
+3.把找到的ip range填入一个文件(比如as7203.txt)，一行一条
+
+4.开始检测
 ```bash
-./RealiTLScanner -addr <VPS IP> -port 443 -thread 100 -timeout 5 -out file.csv
+./reality-checker auto --in ./as7203.txt  --limit 10
 ```
 
-**2. 使用本工具检测生成的CSV文件：**
-```bash
-./reality-checker csv file.csv
-```
-
-**重要提示：**
-- RealiTLScanner 尽量在本地运行，不要在远端
-- 多次运行RealiTLScanner时，请更改输出文件名，如：`file1.csv`、`file2.csv`、`file3.csv` 等
-- 如果使用相同的文件名，可能会导致文件导出失败或覆盖之前的扫描结果
+5.手动测试符合条件的域名，观察是否像真实上线的网站(不是demo，不是初始部署欢迎页),最好有真实的功能和业务
 
 ### 查看帮助
 
