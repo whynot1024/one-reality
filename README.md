@@ -27,9 +27,15 @@ Reality SNI目标域名的最佳实践
 
 1. 确认vps ip 的ASN
 
-2. 手动查找该ASN下的ip段,找和自己同国家的ip段（比如使用[ipinfo](https://ipinfo.io)),
+2. 自动查询该ASN下的已公告IP段，并按国家过滤：
 
-3. 把这些ip段填入一个文件(比如as7203.txt)，一行一条
+   ```bash
+   ./reality-checker asn AS7203 US > as7203-us.txt
+   ```
+
+   国家参数支持 ISO 两位代码（如 `US`、`DE`、`CN`）或 GeoIP 数据库中的名称。
+
+3. 把输出的ip段保存到文件(比如as7203-us.txt)，一行一条
 
 4. 用以下命令开始检测(本地电脑运行，请先关闭代理（确保请求为直连))
    --limit 10是取前10条（大部分情况已经足够筛选中好用的目标)

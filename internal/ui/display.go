@@ -20,6 +20,7 @@ type GitHubRelease struct {
 func PrintUsage() {
 	fmt.Printf("Reality协议目标网站检测器 %s\n\n", version.GetVersion())
 	fmt.Println("用法:")
+	fmt.Println("  reality-checker asn <ASN> <国家>       查询ASN前缀并按国家过滤")
 	fmt.Println("  reality-checker auto <ip/cidr> [--limit N] 自动查ASN并管道扫描检测 (推荐)")
 	fmt.Println("  reality-checker pipe                    从标准输入(Stdin)管道流式读取检测")
 	fmt.Println("  reality-checker check <domain>          检测单个域名")
@@ -27,6 +28,7 @@ func PrintUsage() {
 	fmt.Println("  reality-checker csv <csv_file>          从CSV文件批量检测域名")
 	fmt.Println("")
 	fmt.Println("示例:")
+	fmt.Println("  reality-checker asn AS15169 US > as15169-us.txt")
 	fmt.Println("  reality-checker auto 85.155.184.100 --limit 5")
 	fmt.Println("  ./RealiTLScanner -addr 85.155.184.0/23 -out /dev/stdout | ./reality-checker pipe")
 	fmt.Println("  reality-checker check apple.com")
