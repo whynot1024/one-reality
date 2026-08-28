@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -21,11 +22,55 @@ type Client struct {
 }
 
 // NewClient creates an ASN client with a bounded request timeout.
-func NewClient() *Client {
+func NewClient(timeout ...time.Duration) *Client {
+	requestTimeout := 15 * time.Second
+	if len(timeout) > 0 && timeout[0] > 0 {
+		requestTimeout = timeout[0]
+	}
 	return &Client{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: requestTimeout},
 		endpoint:   defaultEndpoint,
 	}
+}
+
+// PrefixesForIP resolves the originating ASN and returns its announced prefixes.
+func (c *Client) PrefixesForIP(ctx context.Context, ip string) (int, []string, error) {
+	parsed, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return 0, nil, fmt.Errorf("解析入口IP失败: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://stat.ripe.net/data/prefix-overview/data.json?resource="+parsed.String(), nil)
+	if err != nil {
+		return 0, nil, fmt.Errorf("创建IP ASN请求失败: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("查询IP ASN失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, nil, fmt.Errorf("查询IP ASN失败: HTTP %s", resp.Status)
+	}
+	var overview struct {
+		Data struct {
+			ASNs []struct {
+				ASN int `json:"asn"`
+			} `json:"asns"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&overview); err != nil {
+		return 0, nil, fmt.Errorf("解析IP ASN响应失败: %w", err)
+	}
+	if len(overview.Data.ASNs) == 0 || overview.Data.ASNs[0].ASN <= 0 {
+		return 0, nil, fmt.Errorf("RIPEstat未返回%s的ASN", parsed)
+	}
+	asnNumber := overview.Data.ASNs[0].ASN
+	prefixes, err := c.FetchPrefixes(ctx, fmt.Sprintf("AS%d", asnNumber))
+	if err != nil {
+		return 0, nil, err
+	}
+	return asnNumber, prefixes, nil
 }
 
 type response struct {
