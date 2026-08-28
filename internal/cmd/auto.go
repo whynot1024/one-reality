@@ -17,6 +17,7 @@ import (
 	"RealityChecker/internal/scanner"
 	"RealityChecker/internal/types"
 	"RealityChecker/internal/ui"
+
 	"github.com/oschwald/geoip2-golang"
 	"github.com/schollz/progressbar/v3"
 )
@@ -185,7 +186,7 @@ CIDRLoop:
 			break CIDRLoop
 		}
 
-		ui.PrintTimestampedMessage("[%d/%d] 正在内嵌并发扫描网段: %s ...", idx+1, len(cidrs), cidr)
+		logger.AboveBar(bar, "[%d/%d] 正在内嵌并发扫描网段: %s ...", idx+1, len(cidrs), cidr)
 
 		// 单个 CIDR 的扫描输出中间通道
 		subChan := make(chan *scanner.ScanResult, 50)
