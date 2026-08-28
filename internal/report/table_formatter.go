@@ -66,6 +66,8 @@ func (tf *TableFormatter) FormatSuitableTable(results []*types.DetectionResult) 
 		if result.Network != nil && result.Network.FinalDomain != "" {
 			finalDomain = result.Network.FinalDomain
 		}
+		// OSC 8 allows terminals such as VS Code to open the domain with Ctrl+Click.
+		finalDomainLink := text.Hyperlink("https://"+finalDomain, finalDomain)
 
 		// 基础条件（TLS1.3 + X25519 + H2 + SNI匹配）
 		var basicConditionsText string
@@ -167,7 +169,7 @@ func (tf *TableFormatter) FormatSuitableTable(results []*types.DetectionResult) 
 
 		// 添加行数据
 		t.AppendRow(table.Row{
-			finalDomain,
+			finalDomainLink,
 			basicConditionsText,
 			handshakeText,
 			certText,
