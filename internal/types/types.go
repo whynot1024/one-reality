@@ -31,8 +31,8 @@ type DetectionResult struct {
 
 // StatusCodeCategory 状态码分类常量
 const (
-	StatusCodeCategorySafe     = "safe"     // 安全状态码：200, 301, 302, 404
-	StatusCodeCategoryExcluded = "excluded" // 排除状态码：401, 403, 407, 408, 429, 5xx
+	StatusCodeCategorySafe     = "safe"     // 安全状态码：200, 301, 302
+	StatusCodeCategoryExcluded = "excluded" // 排除状态码：404, 401, 403, 407, 408, 429, 5xx
 	StatusCodeCategoryNetwork  = "network"  // 网络不可达
 )
 
@@ -44,7 +44,7 @@ func ClassifyStatusCode(statusCode int, accessible bool) string {
 
 	// 安全的状态码
 	switch statusCode {
-	case 200, 301, 302, 404:
+	case 200, 301, 302:
 		return StatusCodeCategorySafe
 	}
 

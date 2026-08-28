@@ -155,8 +155,6 @@ func (tf *TableFormatter) FormatSuitableTable(results []*types.DetectionResult) 
 					pageStatusText = text.FgGreen.Sprint(fmt.Sprintf("%d", statusCode))
 				case 301, 302:
 					pageStatusText = text.FgYellow.Sprint(fmt.Sprintf("%d", statusCode))
-				case 404:
-					pageStatusText = text.FgBlue.Sprint(fmt.Sprintf("%d", statusCode))
 				default:
 					pageStatusText = text.FgRed.Sprint(fmt.Sprintf("%d", statusCode))
 				}
