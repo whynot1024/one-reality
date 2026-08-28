@@ -25,20 +25,20 @@ Reality SNI目标域名的最佳实践
 
 ### 推荐工作流程
 
-1. 确认vps ip 的ASN
+1. 用 VPS IP 启动自动流程。程序会通过 RIPEstat 查询 IP 所属 ASN 的宣布网段，并使用 `data/Country.mmdb` 过滤为与入口 IP 同国家的网段。
 
-2. 手动查找该ASN下的ip段,找和自己同国家的ip段（比如使用[ipinfo](https://ipinfo.io)),
+```bash
+./reality-checker auto <vps-ip> --limit 10
+```
 
-3. 把这些ip段填入一个文件(比如as7203.txt)，一行一条
-
-4. 用以下命令开始检测(本地电脑运行，请先关闭代理（确保请求为直连))
+2. 也可以继续把自定义网段填入文件（每行一条），再用以下命令开始检测(本地电脑运行，请先关闭代理（确保请求为直连))
    --limit 10是取前10条（大部分情况已经足够筛选中好用的目标)
 
 ```bash
-./reality-checker auto --in ./as7203.txt  --limit 10
+./reality-checker auto --in ./cidrs.txt  --limit 10
 ```
 
-5. 观察搜索结果，手动去浏览器查看每个域名, 观察是否像正式的网站(不是demo，不是欢迎页,不是可能涉及翻墙的面板),最好有真实的功能和业务
+3. 观察搜索结果，手动去浏览器查看每个域名, 观察是否像正式的网站(不是demo，不是欢迎页,不是可能涉及翻墙的面板),最好有真实的功能和业务
 
 ## 📊 检测结果说明
 
@@ -50,8 +50,7 @@ Reality SNI目标域名的最佳实践
 输入vps的ip -> 自动查询ASN以及对应国家的同ASN ip段 -> 并发扫描所有ip -> 返回符合条件的结果
 ```
 
-但是自动查询ASN下的ip段目前没找到免费的数据库方案。
-所以折中的做法是
+自动流程使用公开的 RIPEstat API 查询 ASN 和宣布网段，不需要额外的 ASN 数据库。
 
 ### 过滤条件
 
@@ -96,13 +95,31 @@ concurrency:
 
 * **Linux VPS** - 主要针对VPS环境使用
 * **Windows、macOS** - 等自行编译
-* **Go 1.21+** - 用于本地编译（Windows、macOS可选）
+* **Go 1.25+** - 用于本地编译
 
 ### 安装步骤
 
 **方法1：直接下载（推荐）**
 
 从 [Releases](https://github.com/qualvey/RealityChecker/releases) 页面下载对应架构的zip文件：
+
+### 本地构建
+
+Linux/macOS 使用 Bash：
+
+```bash
+./build.sh
+```
+
+Windows PowerShell：
+
+```powershell
+.\build.ps1
+```
+
+构建产物统一输出到 `dist/`，包括 Linux `amd64`/`arm64` 和 Windows `amd64`
+可执行文件及对应 zip 压缩包。构建时可通过 `VERSION`、`COMMIT`、`BUILD_TIME`
+环境变量覆盖版本信息。
 
 
 ## 🔍 使用示例

@@ -5,17 +5,20 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
+	"RealityChecker/internal/asn"
 	"RealityChecker/internal/logger"
 	"RealityChecker/internal/scanner"
 	"RealityChecker/internal/types"
 	"RealityChecker/internal/ui"
+	"github.com/oschwald/geoip2-golang"
+	"github.com/schollz/progressbar/v3"
 )
 
 // CalculateTotalIPs 计算一组 CIDR 或单 IP 的总数量（支持 IPv4 和 IPv6，支持去重/越界大数）
@@ -48,6 +51,7 @@ func CalculateTotalIPs(cidrs []string) int64 {
 	}
 	return total
 }
+
 // executeAuto 处理 CIDR/IP 列表，内存中调用内置 TLS 扫描器并根据 REALITY 策略输出彩色表格结果
 func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.RealityFilterConfig) {
 	if len(cidrs) == 0 {
@@ -360,6 +364,59 @@ func resolveInputToCIDRs(targetInput string, inFile string) []string {
 
 	return cidrs
 }
+
+// resolveAutoInput discovers announced prefixes for a target IP and keeps only
+// prefixes whose representative address is in the target IP's country.
+func resolveAutoInput(ctx context.Context, targetInput string, inFile string, country string) ([]string, error) {
+	if inFile != "" || targetInput == "" || strings.Contains(targetInput, "/") {
+		return resolveInputToCIDRs(targetInput, inFile), nil
+	}
+	ip := net.ParseIP(targetInput)
+	if ip == nil {
+		return resolveInputToCIDRs(targetInput, inFile), nil
+	}
+
+	reader, err := geoip2.Open("data/Country.mmdb")
+	if err != nil {
+		return nil, fmt.Errorf("打开 GeoIP 数据库失败: %w", err)
+	}
+	defer reader.Close()
+	targetRecord, err := reader.Country(ip)
+	if err != nil || targetRecord.Country.IsoCode == "" {
+		return nil, fmt.Errorf("无法确定入口 IP %s 的国家", targetInput)
+	}
+	targetCountry := strings.ToUpper(strings.TrimSpace(country))
+	if targetCountry == "" {
+		targetCountry = targetRecord.Country.IsoCode
+	}
+	if len(targetCountry) != 2 {
+		return nil, fmt.Errorf("国家代码必须是两位 ISO 代码（例如 DE、US）")
+	}
+
+	asnNumber, prefixes, err := asn.NewClient(15*time.Second).PrefixesForIP(ctx, ip.String())
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]string, 0, len(prefixes))
+	for _, raw := range prefixes {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil {
+			continue
+		}
+		record, err := reader.Country(net.ParseIP(prefix.Addr().String()))
+		if err == nil && record.Country.IsoCode == targetCountry {
+			filtered = append(filtered, prefix.String())
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("AS%d 没有与入口 IP 同国家（%s）的宣布网段", asnNumber, targetCountry)
+	}
+	ui.PrintTimestampedMessage("入口 IP %s 属于 AS%d，国家 %s；已过滤为 %d 个同国家网段",
+		targetInput, asnNumber, targetCountry, len(filtered))
+	return filtered, nil
+}
+
 // appendCIDR 解析并追加 CIDR 或单 IP 扩展网段，自动去重并规范化
 func appendCIDR(list []string, input string) []string {
 	input = strings.TrimSpace(input)
@@ -418,6 +475,7 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 			"  reality-checker auto --in <cidr_file> [选项]",
 			"选项:",
 			"  --in FILE            从文件中批量读取 CIDR/IP 列表 (每行一个)",
+			"  --country CODE       按两位 ISO 国家代码过滤（默认使用入口 IP 国家）",
 			"  --no-check           跳过data资源检测",
 			"  --limit N            指定获取合适目标的数量上限 (默认 5)",
 			"  --no-cdn             强制筛选无 CDN 节点 (默认开启)",
@@ -428,8 +486,8 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 			"  --min-cert-days DAYS 证书最低剩余天数 (默认 7 天)",
 			"  --min-stars STARS    最低推荐星级 1-5 (默认 3)",
 			"示例:",
+			"  reality-checker auto 85.155.184.100 --limit 5",
 			"  reality-checker auto 5.45.102.0/24 --limit 2",
-			"  reality-checker auto 5.45.102.196 --limit 5 --max-handshake 500",
 			"  reality-checker auto --in cidrs.txt --limit 5",
 		)
 		os.Exit(1)
@@ -437,6 +495,7 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 
 	var targetInput string
 	var inFile string
+	var country string
 	maxTargets := 5
 	filter := r.batchManager.GetConfig().RealityFilter
 
@@ -451,6 +510,11 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 		case "--in":
 			if i+1 < len(args) {
 				inFile = args[i+1]
+				i++
+			}
+		case "--country":
+			if i+1 < len(args) {
+				country = args[i+1]
 				i++
 			}
 		case "--limit", "-n":
@@ -501,6 +565,10 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 		}
 	}
 
-	cidrs := resolveInputToCIDRs(targetInput, inFile)
+	cidrs, err := resolveAutoInput(r.ctx, targetInput, inFile, country)
+	if err != nil {
+		ui.PrintError(fmt.Sprintf("自动查询 ASN 网段失败: %v", err))
+		return
+	}
 	r.executeAuto(cidrs, maxTargets, filter)
 }
