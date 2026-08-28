@@ -133,7 +133,9 @@ func (s *Scanner) ScanTLS(ctx context.Context, host Host, port int, timeout int,
 }
 
 // ScanCIDRStream 执行并发扫描并把结果通过 Channel 传出
-func (s *Scanner) ScanCIDRStream(ctx context.Context, cidrStr string, port int, threads int, timeout int, enableIPv6 bool, outChan chan<- *ScanResult) {
+func (s *Scanner) ScanCIDRStream(ctx context.Context, cidrStr string, port int, threads int, timeout int, enableIPv6 bool, outChan chan<- *ScanResult,
+onProgress func(n int),
+) {
 	hostChan := IterateCIDR(ctx, cidrStr, enableIPv6)
 
 	var wg sync.WaitGroup
@@ -141,6 +143,7 @@ func (s *Scanner) ScanCIDRStream(ctx context.Context, cidrStr string, port int, 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
 			for host := range hostChan {
 				select {
 				case <-ctx.Done():
@@ -153,6 +156,10 @@ func (s *Scanner) ScanCIDRStream(ctx context.Context, cidrStr string, port int, 
 				}
 
 				res := s.ScanTLS(ctx, host, port, timeout, enableIPv6)
+				// 2.【核心位置】无论成功还是失败，单 IP 探测结束立刻触发步进
+				if onProgress != nil {
+					onProgress(1)
+				}
 				if res != nil {
 					if logger.IsDebug() {
 						logger.Debug("IP: %s 握手成功! 提取证书CN: %s, ALPN: %s, 加密套件: %s", host.IP.String(), res.CertDomain, res.ALPN, res.Curve)

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 type Level int
@@ -61,8 +63,20 @@ func parseLevel(l string) Level {
 	}
 }
 
+
 func IsDebug() bool {
 	return globalLogger.level <= LevelDebug
+}
+
+// safePrint 在打印日志前清掉进度条，打印完毕后让进度条重新出现在下一行
+func AboveBar(bar *progressbar.ProgressBar, format string, a ...any) {
+	if bar != nil {
+		_ = bar.Clear() // 1. 擦除当前行的进度条
+	}
+	fmt.Printf(format, a...) // 2. 正常打印业务日志（自带换行）
+	if bar != nil {
+		_ = bar.RenderBlank() // 3. 立即重新在最下方把进度条画出来
+	}
 }
 
 func Debug(format string, args ...interface{}) {

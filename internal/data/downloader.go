@@ -1,11 +1,13 @@
 package data
 
 import (
+    "crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
+	"RealityChecker/internal/logger"
 )
 
 // DataFile 数据文件配置
@@ -61,7 +63,7 @@ func (d *Downloader) EnsureDataFiles() error {
 		},
 		{
 			Name:      "Country.mmdb",
-			URL:       "https://github.com/Loyalsoldier/geoip/releases/latest/download/Country.mmdb",
+			URL:       "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb",
 			LocalPath: "data/Country.mmdb",
 		},
 	}
@@ -158,16 +160,32 @@ func (d *Downloader) downloadWithRetry(file DataFile) error {
 
 // downloadFile 下载单个文件
 func (d *Downloader) downloadFile(file DataFile) error {
+    logger.Info("downloading file %s" ,file.URL)
+    // 禁用 HTTP/2，避免透明代理环境下的 h2 握手/流重置问题
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+		ForceAttemptHTTP2: false,
+		TLSNextProto:      make(map[string]func(authority string, c *tls.Conn) http.RoundTripper), // 彻底关闭 HTTP/2
+	}
 	// 创建HTTP客户端
 	client := &http.Client{
+        Transport: tr,
 		Timeout: d.timeout,
 	}
 
-	// 发送请求
-	resp, err := client.Get(file.URL)
+    // 构造 Request 并注入常见 User-Agent
+	req, err := http.NewRequest("GET", file.URL, nil)
 	if err != nil {
 		return err
 	}
+    req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
 	defer resp.Body.Close()
 
 	// 检查响应状态

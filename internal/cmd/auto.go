@@ -11,12 +11,43 @@ import (
 	"sync"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
 	"RealityChecker/internal/logger"
 	"RealityChecker/internal/scanner"
 	"RealityChecker/internal/types"
 	"RealityChecker/internal/ui"
 )
 
+// CalculateTotalIPs 计算一组 CIDR 或单 IP 的总数量（支持 IPv4 和 IPv6，支持去重/越界大数）
+func CalculateTotalIPs(cidrs []string) int64 {
+	var total int64
+
+	for _, raw := range cidrs {
+		// 1. 尝试按 CIDR 解析（如 "192.168.1.0/24"）
+		_, ipNet, err := net.ParseCIDR(raw)
+		if err != nil {
+			// 2. 如果不是 CIDR 格式，检查是否是单独的单个 IP（如 "1.1.1.1"）
+			if ip := net.ParseIP(raw); ip != nil {
+				total += 1
+			}
+			continue
+		}
+
+		// 获取掩码位数（IPv4 ones <= 32，bits == 32）
+		ones, bits := ipNet.Mask.Size()
+		if bits == 32 { // IPv4
+			hostBits := bits - ones
+			// 1 << hostBits 即 2^(32-ones)
+			total += int64(1) << hostBits
+		} else if bits == 128 { // IPv6 (若遇到超大段需考虑防护)
+			hostBits := bits - ones
+			if hostBits < 62 {
+				total += int64(1) << hostBits
+			}
+		}
+	}
+	return total
+}
 // executeAuto 处理 CIDR/IP 列表，内存中调用内置 TLS 扫描器并根据 REALITY 策略输出彩色表格结果
 func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.RealityFilterConfig) {
 	if len(cidrs) == 0 {
@@ -24,11 +55,29 @@ func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.Reali
 		return
 	}
 
+	// 计算待扫描 IP 理论总数
+	totalIPCount := CalculateTotalIPs(cidrs)
+
+	bar := progressbar.NewOptions64(totalIPCount,
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(25),
+		progressbar.OptionSetDescription("[cyan][扫描中...][reset]"),
+		progressbar.OptionUseANSICodes(true),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]=[reset]",
+			SaucerHead:    "[green]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
 	ui.PrintTimestampedMessage("开启内嵌自动化扫描与检测模式 (Native Engine)...")
 	ui.PrintTimestampedMessage("应用 REALITY 选型策略: [非CDN=%v, 最大握手=%dms, 排除热门=%v, 最小证书天数=%d天, 最低星级=%d星]",
 		filter.RequireNoCDN, filter.MaxHandshakeMS, filter.RequireNoHot, filter.MinCertDays, filter.MinStars)
 
 	ui.PrintTimestampedMessage("待扫描网段总数: %d 个。排序如下:", len(cidrs))
+
 	for i, c := range cidrs {
 		if i < 5 {
 			fmt.Printf("  [%d] %s\n", i+1, c)
@@ -104,7 +153,7 @@ func (r *RootCmd) executeAuto(cidrs []string, maxTargets int, filter types.Reali
 						}
 
 						timestamp := time.Now().Format("15:04:05")
-						fmt.Printf("[%s] ★ [发现优质 REALITY 目标 #%d] %-35s (IP: %s, 握手: %dms, 页面: %d)\n",
+						logger.AboveBar(bar, "[%s]  [扫描到第%d个符合条件的目标] %-35s (IP: %s, 握手: %dms, 页面: %d)\n",
 							timestamp, suitableCount, d, scanRes.IP, handshakeMs, statusCode)
 
 						if maxTargets > 0 && suitableCount >= maxTargets {
@@ -167,12 +216,24 @@ CIDRLoop:
 		}()
 
 		// 执行并发 TLS 握手扫描
-		scannerEngine.ScanCIDRStream(ctx, cidr, 443, 100, 5, false, subChan)
+		scannerEngine.ScanCIDRStream(
+			ctx,
+			cidr,
+			443,
+			100,
+			5,
+			false,
+			subChan,
+			func(n int) {
+				_ = bar.Add(n)
+			},
+		)
 		close(subChan)
 		pipeWg.Wait()
 	}
 
 	workerWg.Wait()
+	fmt.Println()
 	close(scanResultChan)
 
 	// 严密裁剪结果数量，保证精确等于 maxTargets
@@ -252,9 +313,6 @@ func calculateStars(result *types.DetectionResult) int {
 			stars++
 		}
 	}
-	if result.CDN == nil || !result.CDN.IsCDN {
-		stars++
-	}
 	if result.CDN != nil && !result.CDN.IsHotWebsite {
 		stars++
 	}
@@ -302,35 +360,49 @@ func resolveInputToCIDRs(targetInput string, inFile string) []string {
 
 	return cidrs
 }
-
+// appendCIDR 解析并追加 CIDR 或单 IP 扩展网段，自动去重并规范化
 func appendCIDR(list []string, input string) []string {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return list
 	}
 
-	// 如果输入本身是 CIDR (如 5.45.102.0/24)
+	// 1. 输入本身已经是 CIDR 格式（如 "5.45.102.0/24"）
 	if strings.Contains(input, "/") {
-		if !contains(list, input) {
-			list = append(list, input)
+		_, ipNet, err := net.ParseCIDR(input)
+		if err == nil {
+			cidrStr := ipNet.String()
+			if !contains(list, cidrStr) {
+				list = append(list, cidrStr)
+			}
 		}
 		return list
 	}
 
-	// 如果输入是单个 IP (如 5.45.102.196)，原生自动生成该 IP 的近邻 /24 和 /23 网段
+	// 2. 输入是单个 IP，按就近原则扩展为子网
 	ip := net.ParseIP(input)
-	if ip != nil {
-		v4 := ip.To4()
-		if v4 != nil {
-			c24 := fmt.Sprintf("%d.%d.%d.0/24", v4[0], v4[1], v4[2])
-			if !contains(list, c24) {
-				list = append(list, c24)
-			}
-			c23 := fmt.Sprintf("%d.%d.%d.0/23", v4[0], v4[1], v4[2]&0xFE)
-			if !contains(list, c23) {
-				list = append(list, c23)
-			}
+	if ip == nil {
+		return list
+	}
+
+	// IPv4: 扩展为包含该 IP 的标准 /24 网段
+	if v4 := ip.To4(); v4 != nil {
+		c24 := fmt.Sprintf("%d.%d.%d.0/24", v4[0], v4[1], v4[2])
+		if !contains(list, c24) {
+			list = append(list, c24)
 		}
+		return list
+	}
+
+	// IPv6: 扩展为包含该 IP 的标准 /64 前缀网段
+	mask := net.CIDRMask(64, 128)
+	ipNet := &net.IPNet{
+		IP:   ip.Mask(mask),
+		Mask: mask,
+	}
+	c64 := ipNet.String()
+	if !contains(list, c64) {
+		list = append(list, c64)
 	}
 
 	return list
@@ -346,6 +418,7 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 			"  reality-checker auto --in <cidr_file> [选项]",
 			"选项:",
 			"  --in FILE            从文件中批量读取 CIDR/IP 列表 (每行一个)",
+			"  --no-check           跳过data资源检测",
 			"  --limit N            指定获取合适目标的数量上限 (默认 5)",
 			"  --no-cdn             强制筛选无 CDN 节点 (默认开启)",
 			"  --allow-cdn          允许 CDN 节点",
@@ -387,6 +460,8 @@ func (r *RootCmd) parseAndExecuteAuto(args []string) {
 				}
 				i++
 			}
+		case "--no-check":
+			filter.RequireNoCDN = true
 		case "--no-cdn":
 			filter.RequireNoCDN = true
 		case "--allow-cdn":
