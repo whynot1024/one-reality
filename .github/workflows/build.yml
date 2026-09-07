@@ -63,7 +63,7 @@ jobs:
           - **推荐结果排序**：根据 CDN、热门网站、证书有效期、握手延迟和协议支持情况输出推荐星级。
           - **多种工作流**：支持 ASN 网段查询、单域名、批量域名、CSV 文件和 stdin 管道检测。
           ### 推荐工作流
-      bash
+          bash
           # 从 VPS IP 自动发现并筛选目标
           ./reality-checker auto 85.155.184.100 --limit 5
           # 查询 ASN 在指定国家的网段
@@ -74,7 +74,7 @@ jobs:
           `auto` 输入单个 IPv4 会扩展为对应 `/24` 网段，IPv6 会扩展为 `/64`；输入 CIDR 时直接扫描该网段。
           `--limit` 表示最终保留的合适目标数量上限，默认值为 5。
           ### 其他用法
-      bash
+          bash
           ./reality-checker check example.com
           ./reality-checker batch example.com example.org
           ./reality-checker csv result.csv
