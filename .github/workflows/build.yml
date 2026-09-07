@@ -40,7 +40,10 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           export COMMIT="$(git rev-parse --short HEAD)"
+          chmod +x ./build.sh
           ./build.sh
+          echo "===== dist contents ====="
+          ls -lh dist/ || true
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
