@@ -16,7 +16,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 方便 git describe
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -38,9 +38,7 @@ jobs:
       - name: Build all platforms
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          COMMIT: ${{ github.sha }}
         run: |
-          # 缩短 commit 显示
           export COMMIT="$(git rev-parse --short HEAD)"
           ./build.sh
 
