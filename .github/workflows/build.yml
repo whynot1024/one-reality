@@ -39,11 +39,12 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -x
           export COMMIT="$(git rev-parse --short HEAD)"
           chmod +x ./build.sh
           ./build.sh
-          echo "===== dist contents ====="
-          ls -lh dist/ || true
+          echo "===== dist 目录内容 ====="
+          ls -lh dist/ || echo "dist 目录不存在或为空"
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -65,12 +66,42 @@ jobs:
             - **多种工作流**：支持 ASN 网段查询、单域名、批量域名、CSV 文件和 stdin 管道检测。
 
             ### 推荐工作流
-            ```bash
-            # 从 VPS IP 自动发现并筛选目标
-            ./reality-checker auto 85.155.184.100 --limit 5
+                # 从 VPS IP 自动发现并筛选目标
+                ./reality-checker auto 85.155.184.100 --limit 5
 
-            # 查询 ASN 在指定国家的网段
-            ./reality-checker asn AS15169 US > as15169-us.txt
+                # 查询 ASN 在指定国家的网段
+                ./reality-checker asn AS15169 US > as15169-us.txt
 
-            # 扫描自定义网段文件
-            ./reality-checker auto --in as15169-us.txt --limit 10
+                # 扫描自定义网段文件
+                ./reality-checker auto --in as15169-us.txt --limit 10
+
+            `auto` 输入单个 IPv4 会扩展为对应 `/24` 网段，IPv6 会扩展为 `/64`；输入 CIDR 时直接扫描该网段。
+            `--limit` 表示最终保留的合适目标数量上限，默认值为 5。
+
+            ### 其他用法
+                ./reality-checker check example.com
+                ./reality-checker batch example.com example.org
+                ./reality-checker csv result.csv
+                cat domains.txt | ./reality-checker pipe
+
+            请从下方 Assets 下载对应平台的构建产物（macOS / Linux / Windows，均为压缩包，另附 checksums.txt 校验文件）。
+
+            完整参数、配置和结果字段说明请参阅 [README.md](https://github.com/qualvey/one-reality/blob/main/README.md)。
+
+            > **macOS 用户**如遇到“无法打开，因为无法验证开发者”提示，请执行：
+            > xattr -d com.apple.quarantine ./reality-checker-darwin-*
+
+            > 本工具仅用于技术研究和学习，请遵守当地法律法规并合理使用网络资源。
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts (non-tag builds)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reality-checker-builds
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
